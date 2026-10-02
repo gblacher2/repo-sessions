@@ -235,12 +235,12 @@ export const register: Register = on => {
     if (e.surface !== 'terminal') {
       const { Box, Button, Svg } = $.ui.resolve(e)
       // Room for the chips: the band's width less the toggle button.
-      const room = Math.min(1000, Math.max(320, e.props.bodyColumns * 7.5 - 110))
+      const room = Math.min(1000, Math.max(320, e.props.bodyColumns * 7.5 - 100))
       const summary = summarySvg(snap, room)
-      const timeline = isExpanded ? paneSvg(snap, 640, { withHeader: false, isFixed: true }) : null
+      const timeline = isExpanded ? paneSvg(snap, 560, { withHeader: false, isFixed: true }) : null
 
       return (
-        <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column">
           <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
             <Svg source={summary.source} width={summary.width} height={summary.height} alt={`${others.length} other sessions in this repo`} />
             <Button key="toggle" label={label} dimColor onPress={toggle} />
