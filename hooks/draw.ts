@@ -260,42 +260,47 @@ export function paneSvg(snap: Snapshot, width = 360, options: { withHeader?: boo
   return { width: W, height: h, source: svg(W, h, parts.join(''), isFixed) }
 }
 
-// One-line summary for the band: repository, counts, then a sprite and name
-// per other session (busy first), folding what does not fit into "+N".
-export function summarySvg(snap: Snapshot, maxWidth = 700) {
+// The band's header: repository and counts of the other sessions.
+export function summarySvg(snap: Snapshot) {
   const others = snap.peers.filter(p => !p.isSelf)
   const busy = others.filter(p => p.status === 'busy').length
-  const H = 22
-  const repo = pixelText(2, 6, (snap.root.split('/').pop() ?? snap.root).slice(0, 24), 1.15, 't1')
-  const counts = pixelText(2 + repo.width + 8, 7, `${busy} busy · ${others.length - busy} idle`, 1, 't3')
-  const parts: string[] = [repo.svg, counts.svg]
-  let x = 2 + repo.width + 8 + counts.width + 16
-
-  const items = others.map(p => {
-    const isBusy = p.status === 'busy'
-    const name = fit(p.name, isBusy ? 150 : 110, 11)
-    const time = ago(snap.checkedAt - p.since)
-    return { p, isBusy, name, time, w: 24 + name.length * 11 * 0.61 + 5 + pixelWidth(time, 1) }
-  })
-  let shown = 0
-  items.forEach((it, i) => {
-    const rest = items.length - i - 1
-    if (x + it.w + (rest > 0 ? 30 : 0) > maxWidth) return
-    const nameEnd = x + 24 + it.name.length * 11 * 0.61
-    parts.push(`${sprite(x, 4, it.p.agent, it.isBusy, 2)}
-      <text x="${x + 24}" y="15" font-size="11" font-weight="${it.isBusy ? 700 : 500}" class="${it.isBusy ? 't1' : 't2'}">${esc(it.name)}</text>
-      ${pixelText(nameEnd + 5, 7, it.time, 1, 't3').svg}`)
-    x += it.w + 14
-    shown++
-  })
-  if (shown < items.length) {
-    const more = pixelText(x, 7, `+${items.length - shown}`, 1, 't3')
-    parts.push(more.svg)
-    x += more.width + 4
-  }
-  const width = Math.ceil(x)
-  return { width, height: H, source: svg(width, H, parts.join(''), true) }
+  const H = 18
+  const repo = pixelText(1, 5, (snap.root.split('/').pop() ?? snap.root).slice(0, 24), 1.15, 't1')
+  const counts = pixelText(1 + repo.width + 8, 6, `${busy} busy · ${others.length - busy} idle`, 1, 't3')
+  const width = Math.ceil(1 + repo.width + 8 + counts.width + 2)
+  return { width, height: H, source: svg(width, H, repo.svg + counts.svg, true) }
 }
+
+// One sprite as its own drawing, for a chip.
+export function spriteSvg(agent: Peer['agent'], isBusy: boolean) {
+  const width = SPRITE_W * 2 + (isBusy ? 0 : 7)
+  const height = 16
+  return { width, height, source: svg(width, height, sprite(0, 3, agent, isBusy, 2), true) }
+}
+
+// A short label in the bitmap font as its own drawing.
+export function pixelTextSvg(text: string, cls = 't3') {
+  const t = pixelText(0, 4, text, 1, cls)
+  const width = Math.ceil(t.width) + 1
+  return { text, width, height: 14, source: svg(width, 14, t.svg, true) }
+}
+
+// A session name in the monospace face as its own drawing, for a chip that
+// has no link to open.
+export function nameSvg(name: string, isBusy: boolean) {
+  const text = fit(name, 160, 11)
+  const width = Math.ceil(text.length * 11 * 0.61) + 2
+  return {
+    text,
+    width,
+    height: 16,
+    source: svg(width, 16, `<text x="0" y="12" font-size="11" font-weight="${isBusy ? 700 : 500}" class="${isBusy ? 't1' : 't2'}">${esc(text)}</text>`, true),
+  }
+}
+
+// Estimated width of one chip in the band: sprite, name, time and gaps.
+export const chipWidth = (name: string, time: string, isButton: boolean) =>
+  SPRITE_W * 2 + 7 + 8 + (isButton ? name.length * 7.2 + 12 : Math.min(name.length, 26) * 11 * 0.61) + 8 + pixelWidth(time, 1) + 16
 
 // Terminal version of the lane.
 export const stripText = (history: readonly number[]) => history.map(v => (v ? '█' : '·')).join('')

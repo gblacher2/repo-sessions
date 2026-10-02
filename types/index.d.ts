@@ -8,6 +8,8 @@ export type Peer = {
   since: number
   isSelf: boolean
   isWorktree: boolean
+  /** Deep link that opens the session in its app; absent when none exists (a terminal session). */
+  openUrl?: string
   /** Busy (1) or idle (0) per 15 s bucket, oldest first, last 10 minutes. */
   history: number[]
 }

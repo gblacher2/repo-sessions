@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Peer, Snapshot, Subagent } from '../types'
 
-import { BUCKET_MS, HISTORY_BUCKETS, ago, paneSvg, relativeCwd, stripText, summarySvg } from './draw'
+import { BUCKET_MS, HISTORY_BUCKETS, ago, chipWidth, nameSvg, paneSvg, pixelTextSvg, relativeCwd, spriteSvg, stripText, summarySvg } from './draw'
 
 const PANE = 'repo-sessions'
 const TITLE = 'Sessions here'
@@ -24,6 +24,7 @@ type SessionFile = {
   statusUpdatedAt?: number
   updatedAt?: number
   startedAt?: number
+  hostSessionId?: string
 }
 
 type Found = Omit<Peer, 'branch' | 'isWorktree' | 'history'>
@@ -96,6 +97,10 @@ async function claudeSessions($: EngineInterface, now: number): Promise<Found[]>
       status: f.status === 'busy' ? ('busy' as const) : ('idle' as const),
       since: f.statusUpdatedAt ?? f.updatedAt ?? f.startedAt ?? now,
       isSelf: f.sessionId === selfId,
+      // Desktop sessions reopen through the Claude app; terminal ones have no link.
+      openUrl: /^local_[A-Za-z0-9-]{1,64}$/.test(f.hostSessionId ?? '')
+        ? `claude://code/continue?session=${f.hostSessionId}`
+        : undefined,
     }))
 }
 
@@ -141,6 +146,7 @@ async function codexThreads($: EngineInterface, now: number): Promise<Found[]> {
       status: now - mtime < CODEX_BUSY_MS ? 'busy' : 'idle',
       since: mtime,
       isSelf: false,
+      openUrl: /^[0-9a-f-]{36}$/.test(id) ? `codex://threads/${id}` : undefined,
     })
   }
   return found
@@ -237,15 +243,51 @@ export const register: Register = on => {
 
     if (e.surface !== 'terminal') {
       const { Box, Button, Svg } = $.ui.resolve(e)
-      // Room for the chips: the band's width less the toggle button.
-      const room = Math.min(1000, Math.max(320, e.props.bodyColumns * 7.5 - 100))
-      const summary = summarySvg(snap, room)
+      const header = summarySvg(snap)
       const timeline = isExpanded ? paneSvg(snap, 560, { withHeader: false, isFixed: true }) : null
+
+      // Chips that fit beside the header and the toggle; the rest fold into +N.
+      let room = Math.min(1100, Math.max(320, e.props.bodyColumns * 7.5)) - header.width - 110
+      const shown = others.filter(p => {
+        const w = chipWidth(p.name, ago(snap.checkedAt - p.since), p.openUrl !== undefined)
+        if (w > room) return false
+        room -= w
+        return true
+      })
+      const hidden = others.length - shown.length
+      const more = hidden > 0 ? pixelTextSvg(`+${hidden}`) : null
 
       return (
         <Box flexDirection="column">
           <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
-            <Svg source={summary.source} width={summary.width} height={summary.height} alt={`${others.length} other sessions in this repo`} />
+            <Box flexDirection="row" alignItems="center" gap={2}>
+              <Svg source={header.source} width={header.width} height={header.height} alt={`${others.length} other sessions in this repo`} />
+              {shown.map(p => {
+                const isBusy = p.status === 'busy'
+                const sprite = spriteSvg(p.agent, isBusy)
+                const time = pixelTextSvg(ago(snap.checkedAt - p.since))
+                const url = p.openUrl
+
+                return (
+                  <Box key={`chip-${p.agent}-${p.id}`} flexDirection="row" alignItems="center" gap={1}>
+                    <Svg source={sprite.source} width={sprite.width} height={sprite.height} alt={`${p.agent} ${p.status}`} />
+                    {url ? (
+                      <Button
+                        key={`open-${p.agent}-${p.id}`}
+                        label={p.name}
+                        plain
+                        dimColor={!isBusy}
+                        onPress={() => $.process.run(['open', url])}
+                      />
+                    ) : (
+                      <Svg source={nameSvg(p.name, isBusy).source} width={nameSvg(p.name, isBusy).width} height={16} alt={p.name} />
+                    )}
+                    <Svg source={time.source} width={time.width} height={time.height} alt={time.text} />
+                  </Box>
+                )
+              })}
+              {more && <Svg source={more.source} width={more.width} height={more.height} alt={more.text} />}
+            </Box>
             <Button key="toggle" label={label} dimColor onPress={toggle} />
           </Box>
           {timeline && (
@@ -263,15 +305,29 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={2}>
           <Text wrap="truncate-end">
             <Text bold>{snap.root.split('/').pop()}</Text>
-            <Text dimColor> {busy} busy · {others.length - busy} idle  </Text>
-            {others.map(p => (
-              <Text key={`${p.agent}-${p.id}`}>
-                <Text color={p.status === 'busy' ? '#0ca30c' : 'gray'}>{p.status === 'busy' ? '●' : '○'}</Text>
-                <Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>■</Text>
-                <Text dimColor={p.status !== 'busy'}> {p.name}  </Text>
-              </Text>
-            ))}
+            <Text dimColor> {busy} busy · {others.length - busy} idle</Text>
           </Text>
+          {others.map(p => {
+            const url = p.openUrl
+
+            return (
+              <Box key={`chip-${p.agent}-${p.id}`} flexDirection="row">
+                <Text color={p.status === 'busy' ? '#0ca30c' : 'gray'}>{p.status === 'busy' ? '●' : '○'}</Text>
+                <Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>■ </Text>
+                {url ? (
+                  <Button
+                    key={`open-${p.agent}-${p.id}`}
+                    label={p.name}
+                    plain
+                    dimColor={p.status !== 'busy'}
+                    onPress={() => $.process.run(['open', url])}
+                  />
+                ) : (
+                  <Text dimColor={p.status !== 'busy'} wrap="truncate-end">{p.name}</Text>
+                )}
+              </Box>
+            )
+          })}
           <Button key="toggle" label={label} dimColor onPress={toggle} />
         </Box>
         {isExpanded &&
