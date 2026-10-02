@@ -220,9 +220,6 @@ export const register: Register = on => {
       return (
         <Svg
           source={pane.source}
-          width={pane.width}
-          height={pane.height}
-          isInteractive
           alt={`${snap.peers.length} sessions, ${busy} busy`}
         />
       )
@@ -290,7 +287,6 @@ export const register: Register = on => {
           source={band.source}
           width={band.width}
           height={band.height}
-          isInteractive
           alt={`${busy.length} other sessions busy in this repo`}
         />
       )

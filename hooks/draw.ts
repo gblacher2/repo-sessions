@@ -6,7 +6,7 @@ export const HISTORY_BUCKETS = 40
 export const BUCKET_MS = 15_000
 
 const W = 360
-const ROW_H = 54
+const ROW_H = 58
 const SUB_H = 22
 const PAD = 12
 const STRIP_W = HISTORY_BUCKETS * 3
@@ -21,8 +21,8 @@ const STYLE = `
   .card { fill: #1f1f1e; opacity: .035; } .line { stroke: #1f1f1e; opacity: .08; }
   .pill { fill: #1f1f1e; opacity: .07; }
   @media (prefers-color-scheme: dark) {
-    .fg { fill: #f5f4ef; } .mut { fill: #a6a49c; } .faint { fill: #a6a49c; }
-    .card { fill: #ffffff; opacity: .045; } .line { stroke: #ffffff; } .pill { fill: #ffffff; opacity: .09; }
+    .fg { fill: #ecebe6; } .mut { fill: #9c9a92; } .faint { fill: #9c9a92; opacity: .22; }
+    .card { fill: #ffffff; opacity: .05; } .line { stroke: #ffffff; } .pill { fill: #ffffff; opacity: .09; }
   }
   text { font-family: ui-sans-serif, -apple-system, system-ui, sans-serif; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -78,26 +78,26 @@ const pill = (x: number, y: number, text: string, color?: string) => {
   return { w, svg: `${bg}<text x="${x + 6}" y="${y + 11.5}" font-size="10.5" font-weight="600" ${fg}>${esc(text)}</text>` }
 }
 
-const row = (p: Peer, y: number, root: string, now: number) => {
+const row = (p: Peer, y: number, root: string, now: number, selfBranch: string | null) => {
   const isBusy = p.status === 'busy'
   const agent = AGENT[p.agent]
   const right = W - PAD
   const badge = pill(PAD + 20, y + 9, agent.label, agent.color)
   const nameX = PAD + 20 + badge.w + 6
   const state = `${p.status} ${ago(now - p.since)}`
-  const stateW = state.length * 6.2
+  const stateW = state.length * 6.8
   const name = `${p.name}${p.isSelf ? ' (this)' : ''}`
 
   const meta: string[] = []
   let mx = PAD + 20
-  if (p.branch) {
-    const b = pill(mx, y + 30, fit(p.branch, 120, 10.5))
+  if (p.branch && p.branch !== selfBranch) {
+    const b = pill(mx, y + 32, fit(p.branch, 120, 10.5))
     meta.push(b.svg)
     mx += b.w + 6
   }
   const where = [p.isWorktree ? 'worktree' : '', relativeCwd(p.cwd, root)].filter(Boolean).join(' · ')
   if (where) {
-    meta.push(`<text x="${mx}" y="${y + 41.5}" font-size="11" class="mut">${esc(fit(where, right - STRIP_W - 10 - mx, 11))}</text>`)
+    meta.push(`<text x="${mx}" y="${y + 44}" font-size="12" class="mut">${esc(fit(where, right - STRIP_W - 10 - mx, 12))}</text>`)
   }
 
   return `<g>
@@ -105,9 +105,9 @@ const row = (p: Peer, y: number, root: string, now: number) => {
     <rect x="4" y="${y + 2}" width="${W - 8}" height="${ROW_H - 4}" rx="10" class="card"/>
     ${dot(PAD + 6, y + 17, isBusy)}
     ${badge.svg}
-    <text x="${nameX}" y="${y + 21}" font-size="13" font-weight="${isBusy ? 650 : 500}" class="fg">${esc(fit(name, right - stateW - 10 - nameX, 13))}</text>
-    <text x="${right}" y="${y + 21}" font-size="11" text-anchor="end" ${isBusy ? `fill="${BUSY}" font-weight="600"` : 'class="mut"'}>${state}</text>
-    ${strip(right - STRIP_W, y + 30, p.history)}
+    <text x="${nameX}" y="${y + 21.5}" font-size="14" font-weight="${isBusy ? 650 : 500}" class="fg">${esc(fit(name, right - stateW - 10 - nameX, 14))}</text>
+    <text x="${right}" y="${y + 21.5}" font-size="12" text-anchor="end" ${isBusy ? `fill="${BUSY}" font-weight="600"` : 'class="mut"'}>${state}</text>
+    ${strip(right - STRIP_W, y + 34, p.history)}
     ${meta.join('')}
   </g>`
 }
@@ -119,15 +119,19 @@ export function paneSvg(snap: Snapshot) {
   const parts: string[] = []
   let y = 0
 
-  parts.push(`<text x="${PAD}" y="18" font-size="14" font-weight="650" class="fg">${esc(fit(repo, 200, 14))}</text>`)
-  const b = pill(W - PAD - 150, 5, `${busy} busy`, BUSY)
-  const i = pill(W - PAD - 150 + b.w + 6, 5, `${idle} idle`)
-  parts.push(b.svg, i.svg)
-  parts.push(`<text x="${W - PAD}" y="${36}" font-size="9.5" text-anchor="end" class="mut">10 min</text>`)
-  y = 40
+  const selfBranch = snap.peers.find(p => p.isSelf)?.branch ?? null
+  const repoText = fit(repo, 150, 15)
+  parts.push(`<text x="${PAD}" y="19" font-size="15" font-weight="650" class="fg">${esc(repoText)}</text>`)
+  if (selfBranch) parts.push(pill(PAD + repoText.length * 8.6 + 8, 6, fit(selfBranch, 90, 10.5)).svg)
+  const i = pill(0, 0, `${idle} idle`)
+  const b = pill(0, 0, `${busy} busy`, BUSY)
+  const bx = W - PAD - i.w - 6 - b.w
+  parts.push(pill(bx, 6, `${busy} busy`, BUSY).svg, pill(bx + b.w + 6, 6, `${idle} idle`).svg)
+  parts.push(`<text x="${W - PAD}" y="${38}" font-size="10" text-anchor="end" class="mut">10 min</text>`)
+  y = 44
 
   for (const p of snap.peers) {
-    parts.push(row(p, y, snap.root, snap.checkedAt))
+    parts.push(row(p, y, snap.root, snap.checkedAt, selfBranch))
     y += ROW_H
   }
 
@@ -150,7 +154,7 @@ export function paneSvg(snap: Snapshot) {
   return {
     width: W,
     height: h,
-    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${h}" width="${W}" height="${h}"><style>${STYLE}</style>${parts.join('')}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${h}"><style>${STYLE}</style>${parts.join('')}</svg>`,
   }
 }
 
