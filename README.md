@@ -8,6 +8,7 @@ A Claude Code mod that shows which Claude Code sessions and Codex threads are wo
 
 - **Strip above the prompt** (default): the repository, how many other sessions are busy and idle, and a chip per session (busy first) with its agent color and how long it has been in that state. It shows in every session, collapsed, and lists nothing when no other session works in this repository.
 - **Timeline** (the strip's button, or `/sessions-here`): expands the strip into a swimlane of every session on a shared 10-minute axis, busy periods drawn as bars in the agent's color.
+- **Click a session** to open it: Claude desktop sessions through `claude://code/continue`, Codex threads through `codex://threads/<id>`. Terminal sessions have no link and are not clickable.
 - **Side pane** (`/sessions-pane`, optional): the same timeline with a header, docked beside the conversation.
 
 A session counts as "here" when it works in this folder, a subfolder, a parent folder (not your home folder or `/`), or another git worktree of the same repository. The desktop Code tab draws SVG; the terminal draws a text version.
@@ -23,15 +24,21 @@ A Codex thread waiting for your approval shows as idle. Activity history starts 
 
 ## Install
 
+Requires Claude Code 2.1.286 or later on macOS (clicking a session uses `open` and the Claude and Codex desktop apps' links).
+
+```bash
+git clone https://github.com/gblacher2/repo-sessions.git ~/repo-sessions
+```
+
 Add the folder to the `env` block of `~/.claude/settings.json`, then start a new session:
 
 ```json
 "env": {
-  "CLAUDE_CODE_PLUGIN_DIRS": "~/GitHub & Coding Projects/repo-sessions"
+  "CLAUDE_CODE_PLUGIN_DIRS": "~/repo-sessions"
 }
 ```
 
-For a single session: `claude --plugin-dir "~/GitHub & Coding Projects/repo-sessions"`.
+For a single session: `claude --plugin-dir ~/repo-sessions`.
 
 ## Development
 
@@ -42,3 +49,7 @@ claude plugin test .
 ```
 
 `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code generates when it loads the mod (run `/plugin-types` otherwise). `claude plugin test` needs the hooks-module rollout switch on for your account.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
