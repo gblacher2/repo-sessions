@@ -2,25 +2,42 @@
 
 ## Project overview
 
-Describe what the project does and the user or system it serves.
+Claude Code mod (hooks plugin) that lists the Claude Code sessions and Codex
+threads working in the current repository, for the desktop Code tab and the
+terminal. See README.md.
 
 ## Architecture
 
-Document important directories, modules, boundaries, data ownership, and design
-principles. Link consequential decisions in `docs/adr/` when appropriate.
+- `hooks/register.tsx`: hooks module. Scans every 3 s (`$.clock.every`), writes
+  one snapshot to `$.state`, draws the `Pane` and `AbovePrompt` components.
+- `hooks/draw.ts`: pure SVG and text drawing helpers with no `$`, so they can be
+  rendered outside Claude Code.
+- `types/index.d.ts`: the `$.state` contract.
+- `tests/render.test.ts`: `claude plugin test` suite with a faked host.
+
+Functions that take `$` must be top-level function declarations in the same file
+(the validator follows `$` only into those), and state is written with
+`$.state.set`, never through an imported helper.
 
 ## Development
 
-Document exact installation and run commands for this repository.
+Load for one session: `claude --plugin-dir .`. Load everywhere: add this folder
+to `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`.
 
 ## Validation
 
-Document exact test, lint, typecheck, build, and manual verification commands.
-A failed required check means the task is not complete.
+```bash
+claude plugin validate .
+npx -p typescript tsc -p .
+claude plugin test .
+```
+
+Manual: open `/sessions-here` in a repository with other sessions on both the
+desktop Code tab and a terminal.
 
 ## Coding conventions
 
-Document project-specific language, framework, compatibility, data, and UI rules.
+TypeScript, strict. No dependencies. UI text is labels only.
 
 ## GitHub workflow and agent guardrails
 

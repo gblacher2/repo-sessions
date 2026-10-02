@@ -8,6 +8,8 @@ export type Peer = {
   since: number
   isSelf: boolean
   isWorktree: boolean
+  /** Busy (1) or idle (0) per 15 s bucket, oldest first, last 10 minutes. */
+  history: number[]
 }
 
 export type Subagent = { id: string; label: string; type: string }

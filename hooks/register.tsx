@@ -2,6 +2,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Peer, Snapshot, Subagent } from '../types'
 
+import { BUCKET_MS, HISTORY_BUCKETS, ago, bandSvg, paneSvg, relativeCwd, stripText } from './draw'
+
 const PANE = 'repo-sessions'
 const TITLE = 'Sessions here'
 const POLL_MS = 3000
@@ -23,18 +25,10 @@ type SessionFile = {
   startedAt?: number
 }
 
-type Found = Omit<Peer, 'branch' | 'isWorktree'>
+type Found = Omit<Peer, 'branch' | 'isWorktree' | 'history'>
 
 const isInside = (child: string, parent: string) =>
   child === parent || child.startsWith(parent.endsWith('/') ? parent : `${parent}/`)
-
-const ago = (ms: number) => {
-  const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.round(s / 60)}m`
-  if (s < 86400) return `${Math.round(s / 3600)}h`
-  return `${Math.round(s / 86400)}d`
-}
 
 // Git's shared .git dir per folder: two worktrees of one repo share it.
 const commonDirCache = new Map<string, string | null>()
@@ -43,6 +37,19 @@ const codexCwdCache = new Map<string, string | null>()
 let home: string | null = null
 let selfId = ''
 let polling = false
+// Busy/idle per 15 s bucket for each session, kept across scans.
+const histories = new Map<string, { bucket: number; values: number[] }>()
+
+function recordHistory(key: string, isBusy: boolean, now: number) {
+  const bucket = Math.floor(now / BUCKET_MS)
+  const h = histories.get(key) ?? { bucket, values: new Array<number>(HISTORY_BUCKETS).fill(0) }
+  const shift = Math.min(HISTORY_BUCKETS, bucket - h.bucket)
+  if (shift > 0) h.values = [...h.values.slice(shift), ...new Array<number>(shift).fill(0)]
+  h.bucket = bucket
+  if (isBusy) h.values[HISTORY_BUCKETS - 1] = 1
+  histories.set(key, h)
+  return [...h.values]
+}
 
 async function run($: EngineInterface, argv: string[]) {
   try {
@@ -156,7 +163,8 @@ async function scan($: EngineInterface) {
       const sameRepo = !sameFolder && myCommon !== null && (await commonDir($, f.cwd)) === myCommon
       if (!sameFolder && !sameRepo) continue
       const branch = myCommon === null ? null : await run($, ['git', '-C', f.cwd, 'branch', '--show-current'])
-      peers.push({ ...f, branch: branch?.trim() || null, isWorktree: sameRepo })
+      const history = recordHistory(`${f.agent}:${f.id}`, f.status === 'busy', now)
+      peers.push({ ...f, branch: branch?.trim() || null, isWorktree: sameRepo, history })
     }
     peers.sort((a, b) =>
       a.isSelf !== b.isSelf ? (a.isSelf ? -1 : 1)
@@ -201,8 +209,26 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
     const { value: snap } = await $.state.get(SNAPSHOT)
+
+    if (e.surface !== 'terminal') {
+      const { Svg, Text } = $.ui.resolve(e)
+      if (!snap) return <Text>Scanning…</Text>
+      const pane = paneSvg(snap)
+      const busy = snap.peers.filter(p => p.status === 'busy').length
+
+      return (
+        <Svg
+          source={pane.source}
+          width={pane.width}
+          height={pane.height}
+          isInteractive
+          alt={`${snap.peers.length} sessions, ${busy} busy`}
+        />
+      )
+    }
+
+    const { Box, Text } = $.ui.resolve(e)
     if (!snap) return <Text dimColor>Scanning…</Text>
 
     return (
@@ -210,23 +236,25 @@ export const register: Register = on => {
         <Text dimColor wrap="truncate-start">{snap.root}</Text>
 
         <Box flexDirection="column">
-          <Text bold>Sessions ({snap.peers.length})</Text>
           {snap.peers.map(p => (
             <Box key={`${p.agent}-${p.id}`} flexDirection="column" marginTop={1}>
               <Box flexDirection="row" gap={1}>
-                <Text color={p.status === 'busy' ? 'green' : 'gray'}>●</Text>
-                <Text color={p.agent === 'codex' ? 'cyan' : 'magenta'}>
+                <Text color={p.status === 'busy' ? 'green' : 'gray'}>{p.status === 'busy' ? '●' : '○'}</Text>
+                <Text color={p.agent === 'codex' ? 'blue' : 'redBright'}>
                   {p.agent === 'codex' ? 'Codex' : 'Claude'}
                 </Text>
                 <Text bold={p.status === 'busy'} wrap="truncate-end">
                   {p.name}{p.isSelf ? ' (this)' : ''}
                 </Text>
               </Box>
-              <Text dimColor wrap="truncate-end">
-                {'  '}{p.status} {ago(snap.checkedAt - p.since)}
-                {p.branch ? ` · ${p.branch}` : ''}
-                {p.isWorktree ? ' · worktree' : ''}
-                {p.cwd !== snap.root ? ` · ${p.cwd.replace(snap.root, '.')}` : ''}
+              <Text wrap="truncate-end">
+                {'  '}<Text color="green">{stripText(p.history)}</Text>
+                <Text dimColor>
+                  {' '}{p.status} {ago(snap.checkedAt - p.since)}
+                  {p.branch ? ` · ${p.branch}` : ''}
+                  {p.isWorktree ? ' · worktree' : ''}
+                  {relativeCwd(p.cwd, snap.root) ? ` · ${relativeCwd(p.cwd, snap.root)}` : ''}
+                </Text>
               </Text>
             </Box>
           ))}
@@ -234,7 +262,7 @@ export const register: Register = on => {
 
         {snap.subagents.length > 0 && (
           <Box flexDirection="column">
-            <Text bold>Subagents of this session ({snap.subagents.length})</Text>
+            <Text bold>Subagents ({snap.subagents.length})</Text>
             {snap.subagents.map(a => (
               <Text key={a.id} wrap="truncate-end">
                 <Text color="green">● </Text>
@@ -243,6 +271,42 @@ export const register: Register = on => {
             ))}
           </Box>
         )}
+      </Box>
+    )
+  })
+
+  // Band above the prompt while another agent is busy in this repo.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const { value: snap } = await $.state.get(SNAPSHOT)
+    const busy = (snap?.peers ?? []).filter(p => !p.isSelf && p.status === 'busy')
+    if (busy.length === 0 || e.props.hasSurvey) return next(e)
+
+    if (e.surface !== 'terminal') {
+      const { Svg } = $.ui.resolve(e)
+      const band = bandSvg(busy)
+
+      return (
+        <Svg
+          source={band.source}
+          width={band.width}
+          height={band.height}
+          isInteractive
+          alt={`${busy.length} other sessions busy in this repo`}
+        />
+      )
+    }
+
+    const { Box, Text } = $.ui.resolve(e)
+
+    return (
+      <Box flexDirection="row" gap={2}>
+        {busy.map(p => (
+          <Text key={`${p.agent}-${p.id}`} wrap="truncate-end">
+            <Text color="green">● </Text>
+            <Text color={p.agent === 'codex' ? 'blue' : 'redBright'}>{p.agent === 'codex' ? 'Codex' : 'Claude'} </Text>
+            {p.name}
+          </Text>
+        ))}
       </Box>
     )
   })
