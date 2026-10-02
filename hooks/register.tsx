@@ -177,9 +177,9 @@ async function scan($: EngineInterface) {
       .filter(a => a.status === 'running')
       .map(a => ({ id: a.id, label: a.name ?? a.description, type: a.type }))
 
-    const others = peers.filter(p => !p.isSelf)
-    const busy = others.filter(p => p.status === 'busy').length
-    $.ui.status(others.length === 0 ? undefined : `${busy}/${others.length} other sessions busy here`)
+    // The strip above the prompt shows the counts; clear any status entry an
+    // earlier version left.
+    $.ui.status(undefined)
 
     const snap: Snapshot = { root, peers, subagents, checkedAt: now }
     await $.state.set(SNAPSHOT, snap)
@@ -200,6 +200,9 @@ export const register: Register = on => {
       name: 'sessions-pane',
       description: 'Open the sessions timeline in a side pane',
     })
+    // The side pane opens only on /sessions-pane: close one left open by an
+    // earlier version or a previous load.
+    await $.ui.close({ id: PANE })
     await scan($)
     $.clock.every(POLL_MS, () => scan($))
 
