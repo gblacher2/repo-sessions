@@ -227,7 +227,7 @@ export const register: Register = on => {
     const { value: snap } = await $.state.get(SNAPSHOT)
     const { value: isExpanded = false } = await $.state.get(EXPANDED)
     const others = (snap?.peers ?? []).filter(p => !p.isSelf)
-    if (!snap || others.length === 0 || e.props.hasSurvey) return next(e)
+    if (!snap || e.props.hasSurvey) return next(e)
 
     const toggle = () => $.state.set(EXPANDED, !isExpanded)
     const label = isExpanded ? 'Collapse' : 'Timeline'
