@@ -23,6 +23,6 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'repo-sessions': { snapshot: Snapshot | null }
+    'repo-sessions': { snapshot: Snapshot | null; isExpanded: boolean }
   }
 }

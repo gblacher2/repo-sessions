@@ -5,14 +5,18 @@ import type { Peer, Snapshot } from '../types'
 export const HISTORY_BUCKETS = 40
 export const BUCKET_MS = 15_000
 
-const W = 360
 const PAD = 12
 const ROW_H = 46
 const SUB_H = 26
-// The shared time lane: last 10 minutes, left to right.
-const LX = 236
-const RX = W - PAD
-const CELL = (RX - LX) / HISTORY_BUCKETS
+
+// Geometry for one drawing width: the shared time lane (last 10 minutes,
+// left to right) takes the right-hand part.
+type Geo = { W: number; LX: number; RX: number; CELL: number }
+const geo = (W: number): Geo => {
+  const RX = W - PAD
+  const LX = RX - Math.min(300, Math.round(W * 0.34))
+  return { W, LX, RX, CELL: (RX - LX) / HISTORY_BUCKETS }
+}
 
 // Agent identity: categorical slots 1 and 2, validated for both modes.
 const AGENT = {
@@ -78,7 +82,8 @@ const agentMark = (x: number, y: number, agent: Peer['agent']) =>
   `<rect x="${x}" y="${y}" width="8" height="8" rx="2" class="${agent}"/>`
 
 // Consecutive busy buckets joined into rounded spans on a hairline track.
-const lane = (y: number, history: readonly number[], agent: Peer['agent']) => {
+const lane = (g: Geo, y: number, history: readonly number[], agent: Peer['agent']) => {
+  const { LX, RX, CELL } = g
   const parts = [`<line x1="${LX}" x2="${RX}" y1="${y}" y2="${y}" class="track" stroke-width="1"/>`]
   let start = -1
   history.forEach((v, i) => {
@@ -94,7 +99,8 @@ const lane = (y: number, history: readonly number[], agent: Peer['agent']) => {
   return parts.join('')
 }
 
-const sessionRow = (p: Peer, y: number, snap: Snapshot, selfBranch: string | null) => {
+const sessionRow = (g: Geo, p: Peer, y: number, snap: Snapshot, selfBranch: string | null) => {
+  const { W, LX } = g
   const isBusy = p.status === 'busy'
   const textX = PAD + 16
   const textW = LX - 14 - textX
@@ -115,10 +121,15 @@ const sessionRow = (p: Peer, y: number, snap: Snapshot, selfBranch: string | nul
     <text x="${textX}" y="${y + 21}" font-size="13" font-weight="${isBusy ? 600 : 500}" class="t1">${esc(fit(name, textW, 13))}</text>
     ${agentMark(textX, y + 29, p.agent)}
     <text x="${textX + 13}" y="${y + 36.5}" font-size="11" class="t2 num">${esc(fit(meta, textW - 13, 11))}</text>
-    ${lane(y + ROW_H / 2, p.history, p.agent)}`
+    ${lane(g, y + ROW_H / 2, p.history, p.agent)}`
 }
 
-export function paneSvg(snap: Snapshot) {
+// The swimlane: one row per session on a shared 10-minute axis. `width` is
+// the drawing's width in CSS pixels; `isFixed` pins it rather than scaling.
+export function paneSvg(snap: Snapshot, width = 360, options: { withHeader?: boolean; isFixed?: boolean } = {}) {
+  const { withHeader = true, isFixed = false } = options
+  const g = geo(width)
+  const { W, LX, RX } = g
   const busy = snap.peers.filter(p => p.status === 'busy').length
   const idle = snap.peers.length - busy
   const repo = snap.root.split('/').pop() ?? snap.root
@@ -127,12 +138,12 @@ export function paneSvg(snap: Snapshot) {
   const parts: string[] = []
 
   // Header: repository, branch and counts.
-  parts.push(`<text x="${PAD}" y="22" font-size="16" font-weight="650" class="t1">${esc(fit(repo, W - 2 * PAD, 16))}</text>`)
+  if (withHeader) parts.push(`<text x="${PAD}" y="22" font-size="16" font-weight="650" class="t1">${esc(fit(repo, W - 2 * PAD, 16))}</text>`)
   const sub = [selfBranch, `${busy} busy`, `${idle} idle`].filter(Boolean).join('  ·  ')
-  parts.push(`<text x="${PAD}" y="40" font-size="11.5" class="t2 num">${esc(fit(sub, W - 2 * PAD, 11.5))}</text>`)
+  if (withHeader) parts.push(`<text x="${PAD}" y="40" font-size="11.5" class="t2 num">${esc(fit(sub, W - 2 * PAD, 11.5))}</text>`)
 
   // Axis row: legend on the left, time ticks over the lane.
-  const axisY = 66
+  const axisY = withHeader ? 66 : 16
   let lx = PAD
   for (const a of agents) {
     parts.push(agentMark(lx, axisY - 7.5, a))
@@ -151,7 +162,7 @@ export function paneSvg(snap: Snapshot) {
     if (i > 0 && !p.isSelf && !snap.peers[i - 1]?.isSelf) {
       rows.push(`<line x1="${PAD}" x2="${RX}" y1="${y}" y2="${y}" class="hair"/>`)
     }
-    rows.push(sessionRow(p, y, snap, selfBranch))
+    rows.push(sessionRow(g, p, y, snap, selfBranch))
     y += ROW_H
   })
   // Grid lines under the rows, spanning the lane.
@@ -173,26 +184,45 @@ export function paneSvg(snap: Snapshot) {
   }
 
   const h = y + 10
-  return { width: W, height: h, source: svg(W, h, parts.join(''), false) }
+  return { width: W, height: h, source: svg(W, h, parts.join(''), isFixed) }
 }
 
-// Chips for the band above the prompt: one per busy session elsewhere.
-export function bandSvg(peers: readonly Peer[], now: number) {
-  const parts: string[] = []
-  let x = 1
-  for (const p of peers) {
-    const name = fit(p.name, 170, 12)
-    const state = `busy ${ago(now - p.since)}`
-    const w = 30 + name.length * 6.5 + 10 + state.length * 5.9 + 12
-    parts.push(`<rect x="${x}" y="1" width="${w}" height="26" rx="13" class="chip"/>
-      ${statusDot(x + 13, 14, true)}
-      ${agentMark(x + 22, 10, p.agent)}
-      <text x="${x + 35}" y="18.5" font-size="12" font-weight="550" class="t1">${esc(name)}</text>
-      <text x="${x + w - 12}" y="18.5" font-size="11" text-anchor="end" class="t2 num">${state}</text>`)
-    x += w + 6
+// One-line summary for the band: repository, counts, then a chip per other
+// session (busy first), folding what does not fit into "+N".
+export function summarySvg(snap: Snapshot, maxWidth = 700) {
+  const others = snap.peers.filter(p => !p.isSelf)
+  const busy = others.filter(p => p.status === 'busy').length
+  const repo = fit(snap.root.split('/').pop() ?? snap.root, 160, 13)
+  const counts = `${busy} busy · ${others.length - busy} idle`
+  const parts: string[] = [
+    `<text x="2" y="19" font-size="13" font-weight="650" class="t1">${esc(repo)}</text>`,
+    `<text x="${2 + repo.length * 7.8 + 8}" y="19" font-size="11.5" class="t2 num">${counts}</text>`,
+  ]
+  let x = 2 + repo.length * 7.8 + 8 + counts.length * 6.3 + 14
+
+  const chips = others.map(p => {
+    const isBusy = p.status === 'busy'
+    const name = fit(p.name, isBusy ? 170 : 120, 12)
+    const time = ago(snap.checkedAt - p.since)
+    return { p, isBusy, name, time, w: 35 + name.length * (isBusy ? 7.1 : 6.7) + 10 + time.length * 6.2 + 12 }
+  })
+  chips.forEach((c, i) => {
+    const rest = chips.length - i - 1
+    if (x + c.w + (rest > 0 ? 44 : 0) > maxWidth) return
+    parts.push(`<rect x="${x}" y="2" width="${c.w}" height="26" rx="13" class="chip"/>
+      ${statusDot(x + 13, 15, c.isBusy)}
+      ${agentMark(x + 22, 11, c.p.agent)}
+      <text x="${x + 35}" y="19.5" font-size="12" font-weight="${c.isBusy ? 600 : 450}" class="${c.isBusy ? 't1' : 't2'}">${esc(c.name)}</text>
+      <text x="${x + c.w - 12}" y="19.5" font-size="11" text-anchor="end" class="t3 num">${c.time}</text>`)
+    x += c.w + 6
+  })
+  const shown = parts.filter(s => s.startsWith('<rect')).length
+  if (shown < chips.length) {
+    parts.push(`<text x="${x + 4}" y="19.5" font-size="11.5" class="t2">+${chips.length - shown}</text>`)
+    x += 34
   }
-  const width = Math.max(Math.ceil(x), 10)
-  return { width, height: 28, source: svg(width, 28, parts.join(''), true) }
+  const width = Math.ceil(x)
+  return { width, height: 30, source: svg(width, 30, parts.join(''), true) }
 }
 
 // Terminal version of the lane.

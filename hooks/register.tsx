@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Peer, Snapshot, Subagent } from '../types'
 
-import { BUCKET_MS, HISTORY_BUCKETS, ago, bandSvg, paneSvg, relativeCwd, stripText } from './draw'
+import { BUCKET_MS, HISTORY_BUCKETS, ago, paneSvg, relativeCwd, stripText, summarySvg } from './draw'
 
 const PANE = 'repo-sessions'
 const TITLE = 'Sessions here'
@@ -13,6 +13,7 @@ const CODEX_BUSY_MS = 30_000
 const CODEX_WINDOW_MIN = 60
 
 const SNAPSHOT = { plugin: 'repo-sessions', key: 'snapshot' } as const
+const EXPANDED = { plugin: 'repo-sessions', key: 'isExpanded' } as const
 
 type SessionFile = {
   pid: number
@@ -193,7 +194,11 @@ export const register: Register = on => {
     selfId = await $.session.id()
     await $.command.register({
       name: 'sessions-here',
-      description: 'Show Claude Code and Codex sessions working in this repo or folder',
+      description: 'Expand or collapse the sessions strip above the prompt',
+    })
+    await $.command.register({
+      name: 'sessions-pane',
+      description: 'Open the sessions timeline in a side pane',
     })
     await scan($)
     $.clock.every(POLL_MS, () => scan($))
@@ -202,12 +207,83 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sessions-here' }, async $ => {
+    const { value: isExpanded = false } = await $.state.get(EXPANDED)
+    await $.state.set(EXPANDED, !isExpanded)
+    await scan($)
+
+    return { text: isExpanded ? 'Sessions strip collapsed.' : 'Sessions strip expanded.' }
+  })
+
+  on('command.run', { command: 'sessions-pane' }, async $ => {
     await scan($)
     await $.ui.open({ id: PANE, title: TITLE })
 
     return { text: 'Sessions pane opened.' }
   })
 
+  // Default view: a strip above the prompt, collapsed to one row of chips,
+  // expanding in place to the full timeline.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const { value: snap } = await $.state.get(SNAPSHOT)
+    const { value: isExpanded = false } = await $.state.get(EXPANDED)
+    const others = (snap?.peers ?? []).filter(p => !p.isSelf)
+    if (!snap || others.length === 0 || e.props.hasSurvey) return next(e)
+
+    const toggle = () => $.state.set(EXPANDED, !isExpanded)
+    const label = isExpanded ? 'Collapse' : 'Timeline'
+
+    if (e.surface !== 'terminal') {
+      const { Box, Button, Svg } = $.ui.resolve(e)
+      // Room for the chips: the band's width less the toggle button.
+      const room = Math.min(1000, Math.max(320, e.props.bodyColumns * 7.5 - 110))
+      const summary = summarySvg(snap, room)
+      const timeline = isExpanded ? paneSvg(snap, 640, { withHeader: false, isFixed: true }) : null
+
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
+            <Svg source={summary.source} width={summary.width} height={summary.height} alt={`${others.length} other sessions in this repo`} />
+            <Button key="toggle" label={label} dimColor onPress={toggle} />
+          </Box>
+          {timeline && (
+            <Svg source={timeline.source} width={timeline.width} height={timeline.height} alt="Session activity, last 10 minutes" />
+          )}
+        </Box>
+      )
+    }
+
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const busy = others.filter(p => p.status === 'busy').length
+
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={2}>
+          <Text wrap="truncate-end">
+            <Text bold>{snap.root.split('/').pop()}</Text>
+            <Text dimColor> {busy} busy · {others.length - busy} idle  </Text>
+            {others.map(p => (
+              <Text key={`${p.agent}-${p.id}`}>
+                <Text color={p.status === 'busy' ? '#0ca30c' : 'gray'}>{p.status === 'busy' ? '●' : '○'}</Text>
+                <Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>■</Text>
+                <Text dimColor={p.status !== 'busy'}> {p.name}  </Text>
+              </Text>
+            ))}
+          </Text>
+          <Button key="toggle" label={label} dimColor onPress={toggle} />
+        </Box>
+        {isExpanded &&
+          others.map(p => (
+            <Text key={`row-${p.agent}-${p.id}`} wrap="truncate-end">
+              <Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>{stripText(p.history)}</Text>
+              <Text dimColor> {p.status} {ago(snap.checkedAt - p.since)} · </Text>
+              {p.name}
+            </Text>
+          ))}
+      </Box>
+    )
+  })
+
+  // Optional side pane (/sessions-pane): the same timeline with a header.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { value: snap } = await $.state.get(SNAPSHOT)
 
@@ -215,97 +291,30 @@ export const register: Register = on => {
       const { Svg, Text } = $.ui.resolve(e)
       if (!snap) return <Text>Scanning…</Text>
       const pane = paneSvg(snap)
-      const busy = snap.peers.filter(p => p.status === 'busy').length
 
-      return (
-        <Svg
-          source={pane.source}
-          alt={`${snap.peers.length} sessions, ${busy} busy`}
-        />
-      )
+      return <Svg source={pane.source} alt={`${snap.peers.length} sessions in this repo`} />
     }
 
     const { Box, Text } = $.ui.resolve(e)
     if (!snap) return <Text dimColor>Scanning…</Text>
 
     return (
-      <Box flexDirection="column" gap={1}>
-        <Text dimColor wrap="truncate-start">{snap.root}</Text>
-
-        <Box flexDirection="column">
-          {snap.peers.map(p => {
-            const color = p.agent === 'codex' ? '#3987e5' : '#d95926'
-            const meta = [
-              p.isSelf ? 'You' : '',
-              p.agent === 'codex' ? 'Codex' : 'Claude',
-              `${p.status} ${ago(snap.checkedAt - p.since)}`,
-              p.branch ?? '',
-              p.isWorktree ? 'worktree' : '',
-              relativeCwd(p.cwd, snap.root),
-            ].filter(Boolean).join(' · ')
-
-            return (
-              <Box key={`${p.agent}-${p.id}`} flexDirection="column" marginTop={1}>
-                <Text wrap="truncate-end">
-                  <Text color={p.status === 'busy' ? '#0ca30c' : 'gray'}>{p.status === 'busy' ? '●' : '○'} </Text>
-                  <Text bold={p.status === 'busy'}>{p.name}</Text>
-                </Text>
-                <Text wrap="truncate-end">
-                  {'  '}<Text color={color}>■ </Text><Text dimColor>{meta}</Text>
-                </Text>
-                <Text wrap="truncate-end">
-                  {'  '}<Text color={color}>{stripText(p.history)}</Text>
-                </Text>
-              </Box>
-            )
-          })}
-        </Box>
-
-        {snap.subagents.length > 0 && (
-          <Box flexDirection="column">
-            <Text bold>Subagents ({snap.subagents.length})</Text>
-            {snap.subagents.map(a => (
-              <Text key={a.id} wrap="truncate-end">
-                <Text color="#0ca30c">● </Text>
-                {a.label} <Text dimColor>({a.type})</Text>
+      <Box flexDirection="column">
+        {snap.peers.map(p => (
+          <Box key={`${p.agent}-${p.id}`} flexDirection="column" marginTop={1}>
+            <Text wrap="truncate-end">
+              <Text color={p.status === 'busy' ? '#0ca30c' : 'gray'}>{p.status === 'busy' ? '●' : '○'} </Text>
+              <Text bold={p.status === 'busy'}>{p.name}</Text>
+            </Text>
+            <Text wrap="truncate-end">
+              {'  '}<Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>{stripText(p.history)}</Text>
+              <Text dimColor>
+                {' '}{p.isSelf ? 'You · ' : ''}{p.status} {ago(snap.checkedAt - p.since)}
+                {p.branch ? ` · ${p.branch}` : ''}
+                {relativeCwd(p.cwd, snap.root) ? ` · ${relativeCwd(p.cwd, snap.root)}` : ''}
               </Text>
-            ))}
+            </Text>
           </Box>
-        )}
-      </Box>
-    )
-  })
-
-  // Band above the prompt while another agent is busy in this repo.
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const { value: snap } = await $.state.get(SNAPSHOT)
-    const busy = (snap?.peers ?? []).filter(p => !p.isSelf && p.status === 'busy')
-    if (busy.length === 0 || e.props.hasSurvey) return next(e)
-
-    if (e.surface !== 'terminal') {
-      const { Svg } = $.ui.resolve(e)
-      const band = bandSvg(busy, snap?.checkedAt ?? 0)
-
-      return (
-        <Svg
-          source={band.source}
-          width={band.width}
-          height={band.height}
-          alt={`${busy.length} other sessions busy in this repo`}
-        />
-      )
-    }
-
-    const { Box, Text } = $.ui.resolve(e)
-
-    return (
-      <Box flexDirection="row" gap={2}>
-        {busy.map(p => (
-          <Text key={`${p.agent}-${p.id}`} wrap="truncate-end">
-            <Text color="#0ca30c">● </Text>
-            <Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>■ </Text>
-            {p.name}
-          </Text>
         ))}
       </Box>
     )

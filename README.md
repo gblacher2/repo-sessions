@@ -6,11 +6,12 @@ A Claude Code mod that shows which Claude Code sessions and Codex threads are wo
 
 ## What it shows
 
-- **Pane** (`/sessions-here`): one card per session working in this folder, a subfolder, a parent folder, or another git worktree of the same repository. Each card has the agent (Claude or Codex), session name, busy or idle time, branch, location, and a 10-minute activity strip. This session's running subagents are listed below.
-- **Band above the prompt**: appears only while another agent is busy in this repository.
+- **Strip above the prompt** (default): the repository, how many other sessions are busy and idle, and a chip per session (busy first) with its agent color and how long it has been in that state. It appears whenever another session works in this repository.
+- **Timeline** (the strip's button, or `/sessions-here`): expands the strip into a swimlane of every session on a shared 10-minute axis, busy periods drawn as bars in the agent's color.
+- **Side pane** (`/sessions-pane`, optional): the same timeline with a header, docked beside the conversation.
 - **Status line**: "N/M other sessions busy here".
 
-The desktop Code tab draws SVG cards; the terminal draws a text version.
+A session counts as "here" when it works in this folder, a subfolder, a parent folder (not your home folder or `/`), or another git worktree of the same repository. The desktop Code tab draws SVG; the terminal draws a text version.
 
 ## How sessions are found
 

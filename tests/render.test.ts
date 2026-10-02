@@ -51,7 +51,7 @@ const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumn
 
 test('pane lists matching sessions on desktop and terminal', async ($, on) => {
   fakeHost(on)
-  await $.command.run({ command: 'sessions-here', args: '' } as never)
+  await $.command.run({ command: 'sessions-pane', args: '' } as never)
 
   const desktop = await $.ui.mount({ plugin: 'repo-sessions', surface: 'desktop', component: 'Pane', props: PANE_PROPS, requestId: 'repo-sessions' })
   const svg = await desktop.find({ type: 'Svg' })
@@ -72,17 +72,19 @@ test('pane lists matching sessions on desktop and terminal', async ($, on) => {
   await terminal.unmount()
 })
 
-test('band shows other busy sessions on both surfaces', async ($, on) => {
+test('strip shows the other sessions on both surfaces', async ($, on) => {
   fakeHost(on)
-  await $.command.run({ command: 'sessions-here', args: '' } as never)
+  await $.command.run({ command: 'sessions-pane', args: '' } as never)
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const band = await $.ui.mount({ plugin: 'repo-sessions', surface, component: 'AbovePrompt', props: BAND_PROPS })
     const found = surface === 'desktop'
       ? String((await band.find({ type: 'Svg' }))?.props.source)
       : (await band.find({ type: 'Text', text: /Peer in subfolder/ }))?.text ?? ''
+    expect(await band.find({ key: 'toggle' })).toBeDefined()
     expect(found).toContain('Peer in subfolder')
     expect(found).not.toContain('This session')
+    expect(found).not.toContain('Opened at home')
     await band.unmount()
   }
 })
