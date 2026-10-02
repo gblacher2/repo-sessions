@@ -233,28 +233,32 @@ export const register: Register = on => {
         <Text dimColor wrap="truncate-start">{snap.root}</Text>
 
         <Box flexDirection="column">
-          {snap.peers.map(p => (
-            <Box key={`${p.agent}-${p.id}`} flexDirection="column" marginTop={1}>
-              <Box flexDirection="row" gap={1}>
-                <Text color={p.status === 'busy' ? 'green' : 'gray'}>{p.status === 'busy' ? '●' : '○'}</Text>
-                <Text color={p.agent === 'codex' ? 'blue' : 'redBright'}>
-                  {p.agent === 'codex' ? 'Codex' : 'Claude'}
+          {snap.peers.map(p => {
+            const color = p.agent === 'codex' ? '#3987e5' : '#d95926'
+            const meta = [
+              p.isSelf ? 'You' : '',
+              p.agent === 'codex' ? 'Codex' : 'Claude',
+              `${p.status} ${ago(snap.checkedAt - p.since)}`,
+              p.branch ?? '',
+              p.isWorktree ? 'worktree' : '',
+              relativeCwd(p.cwd, snap.root),
+            ].filter(Boolean).join(' · ')
+
+            return (
+              <Box key={`${p.agent}-${p.id}`} flexDirection="column" marginTop={1}>
+                <Text wrap="truncate-end">
+                  <Text color={p.status === 'busy' ? '#0ca30c' : 'gray'}>{p.status === 'busy' ? '●' : '○'} </Text>
+                  <Text bold={p.status === 'busy'}>{p.name}</Text>
                 </Text>
-                <Text bold={p.status === 'busy'} wrap="truncate-end">
-                  {p.name}{p.isSelf ? ' (this)' : ''}
+                <Text wrap="truncate-end">
+                  {'  '}<Text color={color}>■ </Text><Text dimColor>{meta}</Text>
+                </Text>
+                <Text wrap="truncate-end">
+                  {'  '}<Text color={color}>{stripText(p.history)}</Text>
                 </Text>
               </Box>
-              <Text wrap="truncate-end">
-                {'  '}<Text color="green">{stripText(p.history)}</Text>
-                <Text dimColor>
-                  {' '}{p.status} {ago(snap.checkedAt - p.since)}
-                  {p.branch ? ` · ${p.branch}` : ''}
-                  {p.isWorktree ? ' · worktree' : ''}
-                  {relativeCwd(p.cwd, snap.root) ? ` · ${relativeCwd(p.cwd, snap.root)}` : ''}
-                </Text>
-              </Text>
-            </Box>
-          ))}
+            )
+          })}
         </Box>
 
         {snap.subagents.length > 0 && (
@@ -262,7 +266,7 @@ export const register: Register = on => {
             <Text bold>Subagents ({snap.subagents.length})</Text>
             {snap.subagents.map(a => (
               <Text key={a.id} wrap="truncate-end">
-                <Text color="green">● </Text>
+                <Text color="#0ca30c">● </Text>
                 {a.label} <Text dimColor>({a.type})</Text>
               </Text>
             ))}
@@ -280,7 +284,7 @@ export const register: Register = on => {
 
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)
-      const band = bandSvg(busy)
+      const band = bandSvg(busy, snap?.checkedAt ?? 0)
 
       return (
         <Svg
@@ -298,8 +302,8 @@ export const register: Register = on => {
       <Box flexDirection="row" gap={2}>
         {busy.map(p => (
           <Text key={`${p.agent}-${p.id}`} wrap="truncate-end">
-            <Text color="green">● </Text>
-            <Text color={p.agent === 'codex' ? 'blue' : 'redBright'}>{p.agent === 'codex' ? 'Codex' : 'Claude'} </Text>
+            <Text color="#0ca30c">● </Text>
+            <Text color={p.agent === 'codex' ? '#3987e5' : '#d95926'}>■ </Text>
             {p.name}
           </Text>
         ))}
