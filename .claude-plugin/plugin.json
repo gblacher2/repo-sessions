@@ -1,0 +1,6 @@
+{
+  "name": "repo-sessions",
+  "version": "0.1.0",
+  "description": "Pane listing the Claude Code and Codex sessions working in this repo or folder",
+  "types": "./types/index.d.ts"
+}
