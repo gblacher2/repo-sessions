@@ -1,6 +1,10 @@
 # repo-sessions
 
-A Claude Code mod that shows which Claude Code sessions and Codex threads are working in the current repository or folder, and whether each one is busy or idle.
+Other Claude and Codex sessions in this repo are invisible. This mod puts them in a strip above the prompt.
+
+Busy ones first, in that agent's color, with how long they've been that way. Click a chip to open the session. One button expands a shared 10-minute timeline.
+
+It stays collapsed, and it shows nothing when you're the only one here.
 
 ![Sessions pane in light and dark mode](docs/preview.jpg)
 
